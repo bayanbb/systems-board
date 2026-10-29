@@ -8,6 +8,20 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Baloo+Bhaijaan+2:wght@500;600;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+/* ===== الصقي هنا إعدادات Firebase حقتك (من Project settings) ===== */
+window.FIREBASE_CONFIG = {
+  apiKey: "AIzaSyBmbxCMyuRwtt7b6nURUSUaqi5jQ08ZUbY",
+  authDomain: "systems-board.firebaseapp.com",
+  projectId: "systems-board",
+  storageBucket: "systems-board.firebasestorage.app",
+  messagingSenderId: "787009320253",
+  appId: "1:787009320253:web:89169d1d6e44bb8162c154"
+};
+/* ================================================================= */
+</script>
 <style>
 :root{
   --bg:#FFF3F8; --bg2:#FDE4F0; --surface:#FFFFFF; --surface2:#FFF7FB;
@@ -586,18 +600,27 @@ function applyReadonly(){
 /* ---------- boot ---------- */
 render();
 (async()=>{
-  try{ db = window.claude ? await window.claude.use("db") : null; }catch(e){ db=null; }
+  const cfg=window.FIREBASE_CONFIG||{};
+  if(window.firebase && cfg.apiKey && cfg.projectId){
+    try{ firebase.initializeApp(cfg); db=firebase.firestore(); }catch(e){ console.error(e); db=null; }
+  }
   if(!db){
     mode="local"; loadLocal(); render();
-    const b=$("#banner"); b.textContent="هذي النسخة تحفظ التعديلات على هذا الجهاز والمتصفح بس، وما تنشارك بين بيان وشمم."; b.classList.add("show");
+    const b=$("#banner"); b.textContent="إعدادات Firebase ناقصة، فالتعديلات تنحفظ على هذا الجهاز بس."; b.classList.add("show");
     return;
   }
   mode="live";
-  try{ const u=await window.claude.use("user"); const w=u&&u.can?await u.can("data.write"):null; if(w===false){canWrite=false;} }catch(e){}
-  if(!canWrite) applyReadonly();
+  let seeded=false;
   db.collection("systems").onSnapshot(snap=>{
+    if(snap.empty && !seeded && !snap.metadata.fromCache){
+      seeded=true; const c={1:0,2:0}; const batch=db.batch();
+      DEFAULTS.forEach(([name,sub,phase],i)=>{ c[phase]+=10;
+        batch.set(db.collection("systems").doc("s"+String(i+1).padStart(2,"0")),{name,sub,phase,order:c[phase],stack:"full",designDone:false,devDone:false,createdAt:Date.now()}); });
+      batch.commit().catch(err=>{console.error(err); toast("ما قدرت أضيف الأنظمة، تأكدي من قواعد Firestore");});
+      return;
+    }
     const m=new Map(); snap.docs.forEach(d=>m.set(d.id,{id:d.id,...d.data()})); systems=m; render();
-  },err=>{ console.error(err); });
+  },err=>{ console.error(err); const b=$("#banner"); b.textContent="ما قدرت أتصل بقاعدة البيانات. تأكدي من قواعد Firestore (Rules)."; b.classList.add("show"); });
   db.collection("comments").onSnapshot(snap=>{
     comments=snap.docs.map(d=>({id:d.id,...d.data()})); render();
   },err=>{ console.error(err); });
